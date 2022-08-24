@@ -70,4 +70,4 @@ jobs:
       run: npm run build
 
     - name: Execute tests (Unit and Feature tests) via Pest
-      run: ./vendor/bin/pest
+      run: vendor/bin/phpunit
