@@ -1,0 +1,73 @@
+name: Workflow Tests
+
+on: ["push", "pull_request"]
+
+jobs:
+  automated-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      singlestore:
+        image: singlestore/cluster-in-a-box:latest
+        ports:
+          - "3306:3306"
+        env:
+          LICENSE_KEY: ${{ secrets.SINGLESTORE_LICENSE }}
+          ROOT_PASSWORD: "test"
+          START_AFTER_INIT: "Y"
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup PHP Version 8.1
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+        extensions: decimal
+
+    - name: Copy .env
+      run: php -r "file_exists('.env') || copy('.env.example', '.env');"
+
+    - name: Validate composer.json and composer.lock
+      run: composer validate
+
+    - name: Install Composer dependencies
+      run: composer install --prefer-dist --no-progress
+
+    - name: Generate key
+      run: php artisan key:generate
+
+    - name: Directory Permissions
+      run: chmod -R 777 storage bootstrap/cache
+
+    - name: Wait for SingleStore to start
+      run: |
+        attempts=0
+        until mysql -h 127.0.0.1 -u root -ptest -e "select 1"; do
+          echo "waiting for mysql..."
+          ((attempts=attempts+1))
+          if [[ $attempts -gt 5 ]]; then
+            docker logs $(docker ps -ql)
+          fi
+          sleep 1
+        done
+
+    - name: SingleStore Container Logs
+      run: docker logs $(docker ps -ql)
+
+
+    - name: Create Test Database
+      run: |
+        mysql -h 127.0.0.1 -u root -ptest -e "create database laravel"
+
+    - name: Run Migrations
+      run: php artisan migrate
+
+    - name: Install Npm dependencies
+      run: npm install
+
+    - name: Build Assets
+      run: npm run build
+
+    - name: Execute tests (Unit and Feature tests) via Pest
+      run: ./vendor/bin/pest
